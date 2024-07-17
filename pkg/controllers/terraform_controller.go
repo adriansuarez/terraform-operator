@@ -1341,16 +1341,13 @@ func getOldGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
 	// 1. The terraforms.tf.galleybytes.com/generation key MUST exist
 	// 2. The terraforms.tf.galleybytes.com/generation value MUST NOT match the current resource generation
 	// 3. The terraforms.tf.galleybytes.com/resourceName value MUST match the resource name
-	requirements := []string{
+	// 4. The terraforms.tf.galleybytes.com/resourceNamespace value MUST match the resource namespace
+	return []string{
 		labelPrefix + "generation",
 		labelPrefix + "generation!=" + fmt.Sprintf("%d", tf.Generation),
 		labelPrefix + "resourceName=" + utils.AutoHashLabeler(tf.Name),
+		labelPrefix + "resourceNamespace=" + utils.AutoHashLabeler(tf.Namespace),
 	}
-	// If pods are not in Terraform resource namespace, add resourceNamespace label
-	if tf.Namespace != getNamespace(tf) {
-		requirements = append(requirements, labelPrefix+"resourceNamespace="+utils.AutoHashLabeler(tf.Namespace))
-	}
-	return requirements
 }
 
 // getCurrentGenerationLabelSelectors returns the label requirements used to
@@ -1358,15 +1355,12 @@ func getOldGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
 func getCurrentGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
 	// 1. The terraforms.tf.galleybytes.com/generation value MUST match the current resource generation
 	// 2. The terraforms.tf.galleybytes.com/resourceName value MUST match the resource name
-	requirements := []string{
+	// 3. The terraforms.tf.galleybytes.com/resourceNamespace value MUST match the resource namespace
+	return []string{
 		labelPrefix + "generation=" + fmt.Sprintf("%d", tf.Generation),
 		labelPrefix + "resourceName=" + utils.AutoHashLabeler(tf.Name),
+		labelPrefix + "resourceNamespace=" + utils.AutoHashLabeler(tf.Namespace),
 	}
-	// If pods are not in Terraform resource namespace, add resourceNamespace label
-	if tf.Namespace != getNamespace(tf) {
-		requirements = append(requirements, labelPrefix+"resourceNamespace="+utils.AutoHashLabeler(tf.Namespace))
-	}
-	return requirements
 }
 
 func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraform, attempt int) {
