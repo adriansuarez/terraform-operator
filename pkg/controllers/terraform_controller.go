@@ -88,6 +88,7 @@ type ReconcileTerraform struct {
 	RequireApprovalImage string
 }
 
+// getNamespace returns the namespace to create Terraform task pods and related resources in.
 func getNamespace(tf *tfv1beta1.Terraform) string {
 	podNamespace := os.Getenv("POD_NAMESPACE")
 	if podNamespace != "" && os.Getenv("USE_CONTROLLER_NAMESPACE") == "true" {
@@ -193,6 +194,8 @@ func (r ReconcileTerraform) listEnvFromSources(tf *tfv1beta1.Terraform) []corev1
 
 const labelPrefix = "terraforms.tf.galleybytes.com/"
 
+// podToTerraformResource returns the Terraform resource associated with a
+// Terraform task pod as a reconciliation request.
 func podToTerraformResource(_ context.Context, obj client.Object) []reconcile.Request {
 	annotations := obj.GetAnnotations()
 	if resourceName, ok := annotations[labelPrefix+"resourceName"]; ok {
@@ -1331,8 +1334,9 @@ func getOldGenerationLabelSelectorString(tf *tfv1beta1.Terraform) string {
 	return strings.Join(getOldGenerationLabelSelectors(tf), ",")
 }
 
+// getOldGenerationLabelSelectors returns the label requirements used to filter
+// pods and other resources for generation other than the current one.
 func getOldGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
-	// The labels required are read as:
 	// 1. The terraforms.tf.galleybytes.com/generation key MUST exist
 	// 2. The terraforms.tf.galleybytes.com/generation value MUST NOT match the current resource generation
 	// 3. The terraforms.tf.galleybytes.com/resourceName value MUST match the resource name
@@ -1348,8 +1352,9 @@ func getOldGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
 	return requirements
 }
 
+// getCurrentGenerationLabelSelectors returns the label requirements used to
+// filter pods and other resources for the current generation.
 func getCurrentGenerationLabelSelectors(tf *tfv1beta1.Terraform) []string {
-	// The labels required are read as:
 	// 1. The terraforms.tf.galleybytes.com/generation value MUST match the current resource generation
 	// 2. The terraforms.tf.galleybytes.com/resourceName value MUST match the resource name
 	requirements := []string{
