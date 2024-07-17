@@ -85,6 +85,14 @@ type ReconcileTerraform struct {
 	RequireApprovalImage string
 }
 
+func getNamespace(tf *tfv1beta1.Terraform) string {
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	if podNamespace != "" && os.Getenv("USE_CONTROLLER_NAMESPACE") == "true" {
+		return podNamespace
+	}
+	return tf.Namespace
+}
+
 // createEnvFromSources adds any of the global environment vars defined at the controller scope
 // and generates a configmap or secret that will be loaded into the resource Task pods.
 //
@@ -95,7 +103,7 @@ type ReconcileTerraform struct {
 func (r ReconcileTerraform) createEnvFromSources(ctx context.Context, tf *tfv1beta1.Terraform) error {
 
 	resourceName := tf.Name
-	resourceNamespace := tf.Namespace
+	resourceNamespace := getNamespace(tf)
 	name := fmt.Sprintf("%s-%s", resourceName, r.GlobalEnvSuffix)
 	if len(r.GlobalEnvFromConfigmapData) > 0 {
 		configMap := corev1.ConfigMap{
@@ -527,7 +535,7 @@ func newTaskOptions(tf *tfv1beta1.Terraform, task tfv1beta1.TaskName, generation
 		inheritedNodeSelector:               nodeSelector,
 		inheritedTolerations:                tolerations,
 		inlineTaskExecutionFile:             inlineTaskExecutionFile,
-		namespace:                           tf.Namespace,
+		namespace:                           getNamespace(tf),
 		resourceName:                        resourceName,
 		prefixedName:                        prefixedName,
 		versionedName:                       versionedName,
@@ -709,7 +717,7 @@ func (r *ReconcileTerraform) Reconcile(ctx context.Context, request reconcile.Re
 	stage := r.checkSetNewStage(ctx, tf, retry)
 	if stage != nil {
 		if stage.Reason == "RESTARTED_WORKFLOW" || stage.Reason == "RESTARTED_DELETE_WORKFLOW" {
-			_ = r.removeOldPlan(tf.Namespace, tf.Name, tf.Status.Stage.Reason, tf.Generation)
+			_ = r.removeOldPlan(getNamespace(tf), tf.Name, tf.Status.Stage.Reason, tf.Generation)
 			// TODO what to do if the remove old plan function fails
 		}
 		reqLogger.V(2).Info(fmt.Sprintf("Stage moving from '%s' -> '%s'", tf.Status.Stage.TaskType, stage.TaskType))
@@ -785,7 +793,7 @@ func (r *ReconcileTerraform) Reconcile(ctx context.Context, request reconcile.Re
 	}
 
 	// Check for the current stage pod
-	inNamespace := client.InNamespace(tf.Namespace)
+	inNamespace := client.InNamespace(getNamespace(tf))
 	f := fields.Set{
 		"metadata.generateName": fmt.Sprintf("%s-%s-", tf.Status.PodNamePrefix+"-v"+fmt.Sprint(generation), podType),
 	}
@@ -1158,7 +1166,7 @@ func (r ReconcileTerraform) checkSetNewStage(ctx context.Context, tf *tfv1beta1.
 	} else if currentStage.State == tfv1beta1.StateFailed {
 		if currentStage.TaskType == tfv1beta1.RunApply {
 
-			err := r.Client.Get(ctx, types.NamespacedName{Namespace: tf.Namespace, Name: tf.Status.Stage.PodName}, &corev1.Pod{})
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: getNamespace(tf), Name: tf.Status.Stage.PodName}, &corev1.Pod{})
 			if err != nil && errors.IsNotFound(err) {
 				// If the task failed, is of type "apply", and the pod does not exist, restart the workflow.
 				isNewStage = true
@@ -1168,7 +1176,7 @@ func (r ReconcileTerraform) checkSetNewStage(ctx context.Context, tf *tfv1beta1.
 			}
 		} else if currentStage.TaskType == tfv1beta1.RunApplyDelete {
 			pod := corev1.Pod{}
-			err := r.Client.Get(ctx, types.NamespacedName{Namespace: tf.Namespace, Name: tf.Status.Stage.PodName}, &pod)
+			err := r.Client.Get(ctx, types.NamespacedName{Namespace: getNamespace(tf), Name: tf.Status.Stage.PodName}, &pod)
 			if err != nil && errors.IsNotFound(err) {
 				// If the task failed, is of type "apply", and the pod does not exist, restart the workflow.
 				isNewStage = true
@@ -1342,7 +1350,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 	err = r.Client.DeleteAllOf(context.TODO(), &corev1.Pod{}, &client.DeleteAllOfOptions{
 		ListOptions: client.ListOptions{
 			LabelSelector: labelSelector,
-			Namespace:     tf.Namespace,
+			Namespace:     getNamespace(tf),
 			FieldSelector: fieldSelector,
 		},
 	})
@@ -1357,7 +1365,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 	podList := corev1.PodList{}
 	err = r.Client.List(context.TODO(), &podList, &client.ListOptions{
 		LabelSelector: labelSelector,
-		Namespace:     tf.Namespace,
+		Namespace:     getNamespace(tf),
 	})
 	if err != nil {
 		logger.Error(err, "Could not list pods to reap")
@@ -1374,7 +1382,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 		err = r.Client.DeleteAllOf(context.TODO(), &corev1.ConfigMap{}, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				LabelSelector: labelSelector,
-				Namespace:     tf.Namespace,
+				Namespace:     getNamespace(tf),
 			},
 		})
 		if err != nil {
@@ -1385,7 +1393,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 		err = r.Client.DeleteAllOf(context.TODO(), &corev1.Secret{}, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				LabelSelector: labelSelector,
-				Namespace:     tf.Namespace,
+				Namespace:     getNamespace(tf),
 			},
 		})
 		if err != nil {
@@ -1396,7 +1404,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 		err = r.Client.DeleteAllOf(context.TODO(), &rbacv1.Role{}, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				LabelSelector: labelSelector,
-				Namespace:     tf.Namespace,
+				Namespace:     getNamespace(tf),
 			},
 		})
 		if err != nil {
@@ -1407,7 +1415,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 		err = r.Client.DeleteAllOf(context.TODO(), &rbacv1.RoleBinding{}, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				LabelSelector: labelSelector,
-				Namespace:     tf.Namespace,
+				Namespace:     getNamespace(tf),
 			},
 		})
 		if err != nil {
@@ -1418,7 +1426,7 @@ func (r ReconcileTerraform) backgroundReapOldGenerationPods(tf *tfv1beta1.Terraf
 		err = r.Client.DeleteAllOf(context.TODO(), &corev1.ServiceAccount{}, &client.DeleteAllOfOptions{
 			ListOptions: client.ListOptions{
 				LabelSelector: labelSelector,
-				Namespace:     tf.Namespace,
+				Namespace:     getNamespace(tf),
 			},
 		})
 		if err != nil {
@@ -1460,7 +1468,7 @@ func (r ReconcileTerraform) reapPlugins(tf *tfv1beta1.Terraform, attempt int) {
 	err = r.Client.DeleteAllOf(context.TODO(), &batchv1.Job{}, &client.DeleteAllOfOptions{
 		ListOptions: client.ListOptions{
 			LabelSelector: labelSelectorForPlugins,
-			Namespace:     tf.Namespace,
+			Namespace:     getNamespace(tf),
 		},
 		DeleteOptions: client.DeleteOptions{
 			PropagationPolicy: &deleteProppagationBackground,
@@ -1473,7 +1481,7 @@ func (r ReconcileTerraform) reapPlugins(tf *tfv1beta1.Terraform, attempt int) {
 	err = r.Client.DeleteAllOf(context.TODO(), &corev1.Pod{}, &client.DeleteAllOfOptions{
 		ListOptions: client.ListOptions{
 			LabelSelector: labelSelectorForPlugins,
-			Namespace:     tf.Namespace,
+			Namespace:     getNamespace(tf),
 		},
 	})
 	if err != nil {
@@ -1486,7 +1494,7 @@ func (r ReconcileTerraform) reapPlugins(tf *tfv1beta1.Terraform, attempt int) {
 	podList := corev1.PodList{}
 	err = r.Client.List(context.TODO(), &podList, &client.ListOptions{
 		LabelSelector: labelSelectorForPlugins,
-		Namespace:     tf.Namespace,
+		Namespace:     getNamespace(tf),
 	})
 	if err != nil {
 		logger.Error(err, "Could not list pods to reap")
@@ -1604,7 +1612,7 @@ func (r ReconcileTerraform) getGitSecrets(tf *tfv1beta1.Terraform) []gitSecret {
 			ref := m.Git.HTTPS.TokenSecretRef
 			namespace := ref.Namespace
 			if ref.Namespace == "" {
-				namespace = tf.Namespace
+				namespace = getNamespace(tf)
 			}
 			secrets = append(secrets, gitSecret{
 				name:          ref.Name,
@@ -1616,7 +1624,7 @@ func (r ReconcileTerraform) getGitSecrets(tf *tfv1beta1.Terraform) []gitSecret {
 			ref := m.Git.SSH.SSHKeySecretRef
 			namespace := ref.Namespace
 			if ref.Namespace == "" {
-				namespace = tf.Namespace
+				namespace = getNamespace(tf)
 			}
 			secrets = append(secrets, gitSecret{
 				name:          ref.Name,
@@ -1785,7 +1793,7 @@ func formatJobSSHConfig(ctx context.Context, reqLogger logr.Logger, tf *tfv1beta
 		}
 		ns := tf.Spec.SSHTunnel.SSHKeySecretRef.Namespace
 		if ns == "" {
-			ns = tf.Namespace
+			ns = getNamespace(tf)
 		}
 
 		key, err := loadPassword(ctx, k8sclient, k, tf.Spec.SSHTunnel.SSHKeySecretRef.Name, ns)
@@ -1826,7 +1834,7 @@ func formatJobSSHConfig(ctx context.Context, reqLogger logr.Logger, tf *tfv1beta
 			}
 			ns := m.Git.SSH.SSHKeySecretRef.Namespace
 			if ns == "" {
-				ns = tf.Namespace
+				ns = getNamespace(tf)
 			}
 			key, err := loadPassword(ctx, k8sclient, k, m.Git.SSH.SSHKeySecretRef.Name, ns)
 			if err != nil {
